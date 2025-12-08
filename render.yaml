@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: controle-presence-api
+    env: node
+    region: ohio  # ou frankfurt, singapore, etc.
+    plan: free  # ou starter, pro, etc.
+    buildCommand: npm install
+    startCommand: npm run render-start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PORT
+        value: 3002
+      # DATABASE_URL sera automatiquement ajouté si vous créez une base de données PostgreSQL
+    healthCheckPath: /api/health
+    autoDeploy: true
+
+databases:
+  - name: controle-presence-db
+    plan: free  # ou starter, pro, etc.
+    databaseName: ctrl_presence
+    user: ctrl_presence_user
