@@ -46,31 +46,31 @@ const authenticateToken = (req, res, next) => {
       req.user.profil = {};
 
       if (userType === 'enseignant') {
-        const [enseignants] = await db.execute(
+        const enseignants = await db.query(
           'SELECT id_enseignant, niveaux_enseignes, mention_enseignee, parcours_enseignes FROM enseignants WHERE id_utilisateur = $1',
           [user.id]
         );
-        if (enseignants[0].length > 0) {
-          const enseignantsData = enseignants[0];
-          const niveauxArray = enseignantsData[0].niveaux_enseignes ? enseignantsData[0].niveaux_enseignes.split(',') : [];
-          const parcoursArray = enseignantsData[0].parcours_enseignes ? enseignantsData[0].parcours_enseignes.split(',') : [];
+        if (enseignants.rows.length > 0) {
+          const enseignant = enseignants.rows[0];
+          const niveauxArray = enseignant.niveaux_enseignes ? enseignant.niveaux_enseignes.split(',') : [];
+          const parcoursArray = enseignant.parcours_enseignes ? enseignant.parcours_enseignes.split(',') : [];
           
-          req.user.profil.id_enseignant = enseignantsData[0].id_enseignant;
+          req.user.profil.id_enseignant = enseignant.id_enseignant;
           req.user.profil.niveaux_enseignes = niveauxArray;
-          req.user.profil.mention_enseignee = enseignantsData[0].mention_enseignee;
+          req.user.profil.mention_enseignee = enseignant.mention_enseignee;
           req.user.profil.parcours_enseignes = parcoursArray;
         }
       } else if (userType === 'etudiant') {
-        const [etudiants] = await db.execute(
+        const etudiants = await db.query(
           'SELECT id_etudiant, niveau, mention, parcours FROM etudiants WHERE id_utilisateur = $1',
           [user.id]
         );
-        if (etudiants[0].length > 0) {
-          const etudiantsData = etudiants[0];
-          req.user.profil.id_etudiant = etudiantsData[0].id_etudiant;
-          req.user.profil.niveau = etudiantsData[0].niveau;
-          req.user.profil.mention = etudiantsData[0].mention;
-          req.user.profil.parcours = etudiantsData[0].parcours;
+        if (etudiants.rows.length > 0) {
+          const etudiant = etudiants.rows[0];
+          req.user.profil.id_etudiant = etudiant.id_etudiant;
+          req.user.profil.niveau = etudiant.niveau;
+          req.user.profil.mention = etudiant.mention;
+          req.user.profil.parcours = etudiant.parcours;
         }
       }
 
