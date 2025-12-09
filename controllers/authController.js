@@ -23,9 +23,9 @@ const login = async (req, res) => {
       WHERE matricule = $1 AND statut = 'actif'
     `;
     
-    const [results] = await db.execute(query, [matricule]);
+    const results = await db.query(query, [matricule]);
 
-    if (results.length === 0) {
+    if (results.rows.length === 0) {
       console.log('❌ Aucun utilisateur trouvé avec ce matricule');
       return res.status(401).json({
         success: false,
@@ -33,7 +33,7 @@ const login = async (req, res) => {
       });
     }
 
-    const user = results[0];
+    const user = results.rows[0];
     console.log('✅ Utilisateur trouvé:', user.email);
 
     const isPasswordValid = await bcrypt.compare(mot_de_passe, user.mot_de_passe);
@@ -49,12 +49,12 @@ const login = async (req, res) => {
     // Récupérer le profil selon le type
     let profil = null;
     if (user.type_utilisateur === 'enseignant') {
-      const [enseignants] = await db.execute(
+      const enseignantResults = await db.query(
         'SELECT id_enseignant, niveaux_enseignes, mention_enseignee, parcours_enseignes FROM enseignants WHERE id_utilisateur = $1',
         [user.id_utilisateur]
       );
-      if (enseignants.length > 0) {
-        const enseignant = enseignants[0];
+      if (enseignantResults.rows.length > 0) {
+        const enseignant = enseignantResults.rows[0];
         profil = { 
           id_enseignant: enseignant.id_enseignant,
           niveaux_enseignes: enseignant.niveaux_enseignes ? enseignant.niveaux_enseignes.split(',') : [],
@@ -63,12 +63,12 @@ const login = async (req, res) => {
         };
       }
     } else if (user.type_utilisateur === 'etudiant') {
-      const [etudiants] = await db.execute(
+      const etudiantResults = await db.query(
         'SELECT id_etudiant, niveau, mention, parcours FROM etudiants WHERE id_utilisateur = $1',
         [user.id_utilisateur]
       );
-      if (etudiants.length > 0) {
-        const etudiant = etudiants[0];
+      if (etudiantResults.rows.length > 0) {
+        const etudiant = etudiantResults.rows[0];
         profil = { 
           id_etudiant: etudiant.id_etudiant,
           niveau: etudiant.niveau,
@@ -111,7 +111,8 @@ const login = async (req, res) => {
     console.error('❌ Erreur de connexion:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur lors de la connexion'
+      message: 'Erreur serveur lors de la connexion',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -146,13 +147,13 @@ const register = async (req, res) => {
     }
 
     // Vérifier si l'utilisateur existe déjà
-    const [existingUsers] = await db.execute(
+    const existingUsers = await db.query(
       'SELECT * FROM utilisateurs WHERE email = $1 OR matricule = $2',
       [email, matricule]
     );
 
-    if (existingUsers.length > 0) {
-      const existingUser = existingUsers[0];
+    if (existingUsers.rows.length > 0) {
+      const existingUser = existingUsers.rows[0];
       if (existingUser.email === email) {
         return res.status(400).json({
           success: false,
@@ -241,7 +242,8 @@ const register = async (req, res) => {
     console.error('❌ Erreur inscription:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la création du compte'
+      message: 'Erreur lors de la création du compte',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -251,31 +253,31 @@ const getProfile = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const [results] = await db.execute(
+    const results = await db.query(
       `SELECT id_utilisateur, nom, prenom, email, matricule, type_utilisateur, statut, date_creation
        FROM utilisateurs
        WHERE id_utilisateur = $1`,
       [userId]
     );
 
-    if (results.length === 0) {
+    if (results.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'Utilisateur non trouvé'
       });
     }
 
-    const user = results[0];
+    const user = results.rows[0];
     
     // Récupérer le profil
     let profil = null;
     if (user.type_utilisateur === 'enseignant') {
-      const [enseignants] = await db.execute(
+      const enseignants = await db.query(
         'SELECT id_enseignant, niveaux_enseignes, mention_enseignee, parcours_enseignes FROM enseignants WHERE id_utilisateur = $1',
         [userId]
       );
-      if (enseignants.length > 0) {
-        const enseignant = enseignants[0];
+      if (enseignants.rows.length > 0) {
+        const enseignant = enseignants.rows[0];
         profil = {
           id_enseignant: enseignant.id_enseignant,
           niveaux_enseignes: enseignant.niveaux_enseignes ? enseignant.niveaux_enseignes.split(',') : [],
@@ -284,12 +286,12 @@ const getProfile = async (req, res) => {
         };
       }
     } else if (user.type_utilisateur === 'etudiant') {
-      const [etudiants] = await db.execute(
+      const etudiants = await db.query(
         'SELECT id_etudiant, niveau, mention, parcours FROM etudiants WHERE id_utilisateur = $1',
         [userId]
       );
-      if (etudiants.length > 0) {
-        const etudiant = etudiants[0];
+      if (etudiants.rows.length > 0) {
+        const etudiant = etudiants.rows[0];
         profil = {
           id_etudiant: etudiant.id_etudiant,
           niveau: etudiant.niveau,
@@ -310,7 +312,8 @@ const getProfile = async (req, res) => {
     console.error('❌ Erreur récupération profil:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur'
+      message: 'Erreur serveur',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -329,31 +332,31 @@ const verifyToken = async (req, res) => {
     // Si le middleware authenticateToken a réussi, le token est valide
     const userId = req.user.id;
     
-    const [results] = await db.execute(
+    const results = await db.query(
       `SELECT id_utilisateur, nom, prenom, email, matricule, type_utilisateur, statut
        FROM utilisateurs
        WHERE id_utilisateur = $1 AND statut = 'actif'`,
       [userId]
     );
 
-    if (results.length === 0) {
+    if (results.rows.length === 0) {
       return res.status(401).json({
         success: false,
         message: 'Utilisateur non trouvé ou inactif'
       });
     }
 
-    const user = results[0];
+    const user = results.rows[0];
     
     // Récupérer le profil
     let profil = null;
     if (user.type_utilisateur === 'enseignant') {
-      const [enseignants] = await db.execute(
+      const enseignants = await db.query(
         'SELECT id_enseignant, niveaux_enseignes, mention_enseignee, parcours_enseignes FROM enseignants WHERE id_utilisateur = $1',
         [userId]
       );
-      if (enseignants.length > 0) {
-        const enseignant = enseignants[0];
+      if (enseignants.rows.length > 0) {
+        const enseignant = enseignants.rows[0];
         profil = {
           id_enseignant: enseignant.id_enseignant,
           niveaux_enseignes: enseignant.niveaux_enseignes ? enseignant.niveaux_enseignes.split(',') : [],
@@ -362,12 +365,12 @@ const verifyToken = async (req, res) => {
         };
       }
     } else if (user.type_utilisateur === 'etudiant') {
-      const [etudiants] = await db.execute(
+      const etudiants = await db.query(
         'SELECT id_etudiant, niveau, mention, parcours FROM etudiants WHERE id_utilisateur = $1',
         [userId]
       );
-      if (etudiants.length > 0) {
-        const etudiant = etudiants[0];
+      if (etudiants.rows.length > 0) {
+        const etudiant = etudiants.rows[0];
         profil = {
           id_etudiant: etudiant.id_etudiant,
           niveau: etudiant.niveau,
@@ -396,7 +399,8 @@ const verifyToken = async (req, res) => {
     console.error('❌ Erreur vérification token:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur lors de la vérification'
+      message: 'Erreur serveur lors de la vérification',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
