@@ -7,7 +7,8 @@ const {
   getMatiereById,
   getAllMatieres,
   createMatiere,
-  updateMatiere
+  updateMatiere,
+  deleteMatiere
 } = require('../controllers/matiereController');
 
 // Récupérer toutes les matières (admin)
@@ -24,5 +25,19 @@ router.get('/:id', authenticateToken, authorize('enseignant'), getMatiereById);
 
 // Mettre à jour une matière
 router.put('/:id', authenticateToken, authorize('enseignant'), updateMatiere);
+
+// Supprimer une matière
+router.delete('/:id', authenticateToken, authorize('enseignant'), deleteMatiere);
+
+// Route de santé spécifique pour matières
+router.get('/health/check', authenticateToken, (req, res) => {
+  console.log('🏥 Vérification santé route matières');
+  res.json({
+    success: true,
+    message: 'Route matières fonctionnelle',
+    timestamp: new Date().toISOString(),
+    user: req.user.id
+  });
+});
 
 module.exports = router;
