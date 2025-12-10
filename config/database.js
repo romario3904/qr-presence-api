@@ -12,12 +12,11 @@ const poolConfig = {
   ssl: {
     rejectUnauthorized: false
   },
-  max: 20, // Nombre max de connexions
-  idleTimeoutMillis: 30000, // Fermer les connexions inactives après 30s
-  connectionTimeoutMillis: 10000, // Timeout de connexion de 10s
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
 };
 
-// Valider la configuration
 if (!process.env.DATABASE_URL) {
   console.error('❌ ERREUR: DATABASE_URL non défini dans .env');
   console.error('Veuillez définir DATABASE_URL dans votre fichier .env');
@@ -26,7 +25,6 @@ if (!process.env.DATABASE_URL) {
 
 const pool = new Pool(poolConfig);
 
-// Log des événements du pool
 pool.on('connect', () => {
   console.log('✅ Connexion PostgreSQL établie');
 });
@@ -34,18 +32,6 @@ pool.on('connect', () => {
 pool.on('error', (err) => {
   console.error('💥 Erreur PostgreSQL:', err.message);
   console.error('Code erreur:', err.code);
-});
-
-pool.on('acquire', () => {
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('📥 Connexion acquise du pool');
-  }
-});
-
-pool.on('remove', () => {
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('📤 Connexion retirée du pool');
-  }
 });
 
 // Fonction d'initialisation de la base de données
@@ -56,13 +42,11 @@ const initializeDatabase = async () => {
     
     client = await pool.connect();
     
-    // Test de requête simple
     const result = await client.query('SELECT NOW() as server_time, version() as pg_version');
     console.log('✅ Connecté à PostgreSQL avec succès');
     console.log(`📅 Heure du serveur: ${result.rows[0].server_time}`);
     console.log(`📊 Version PostgreSQL: ${result.rows[0].pg_version.split(',')[0]}`);
     
-    // Vérifier les tables
     const tables = await client.query(`
       SELECT table_name 
       FROM information_schema.tables 
@@ -80,21 +64,6 @@ const initializeDatabase = async () => {
     console.error('❌ Échec de la connexion PostgreSQL:');
     console.error('Message:', error.message);
     console.error('Code:', error.code);
-    
-    if (error.code === '28P01') {
-      console.log('\n🔧 Problème d\'authentification:');
-      console.log('   1. Vérifiez vos identifiants dans DATABASE_URL');
-      console.log('   2. Le mot de passe pourrait être incorrect');
-      console.log('   3. L\'utilisateur "ctrl_presence_user" existe-t-il ?');
-    } else if (error.code === '3D000') {
-      console.log('\n🔧 Base de données non trouvée:');
-      console.log('   La base "ctrl_presence" n\'existe pas sur Render');
-    } else if (error.message.includes('getaddrinfo ENOTFOUND')) {
-      console.log('\n🔧 Problème de DNS:');
-      console.log('   L\'hôte "dpg-d4rga9ali9vc73a1kdv0-a" n\'est pas résolu');
-      console.log('   Vérifiez que l\'instance PostgreSQL sur Render est active');
-    }
-    
     return false;
   } finally {
     if (client) client.release();
@@ -118,7 +87,7 @@ const query = async (text, params = []) => {
   }
 };
 
-// Alias pour compatibilité avec les controllers existants
+// Alias pour compatibilité
 const execute = async (queryText, params = []) => {
   return query(queryText, params);
 };
@@ -152,7 +121,7 @@ const testConnection = async () => {
   }
 };
 
-// Fonction pour créer les tables nécessaires
+// Fonction pour créer les tables nécessaires - CORRIGÉE
 const createTablesIfNotExist = async () => {
   let client;
   try {
@@ -200,14 +169,25 @@ const createTablesIfNotExist = async () => {
         date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Table des matières
+      -- Table des matières - CORRIGÉE
       CREATE TABLE IF NOT EXISTS matieres (
         id_matiere SERIAL PRIMARY KEY,
-        code VARCHAR(50) UNIQUE NOT NULL,
-        nom VARCHAR(255) NOT NULL,
+        nom_matiere VARCHAR(255) NOT NULL,  -- Changé de 'nom' à 'nom_matiere'
+        code_matiere VARCHAR(50) UNIQUE NOT NULL,  -- Changé de 'code' à 'code_matiere'
         description TEXT,
-        id_enseignant INTEGER REFERENCES enseignants(id_enseignant),
+        credit INTEGER,
+        niveau_enseignee VARCHAR(50),
+        mention_enseignee VARCHAR(100),
+        parcours_enseignee VARCHAR(100),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Table de relation enseignant_matiere
+      CREATE TABLE IF NOT EXISTS enseignant_matiere (
+        id_enseignant INTEGER REFERENCES enseignants(id_enseignant) ON DELETE CASCADE,
+        id_matiere INTEGER REFERENCES matieres(id_matiere) ON DELETE CASCADE,
+        date_assignation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id_enseignant, id_matiere)
       );
 
       -- Table des présences
@@ -234,7 +214,7 @@ const createTablesIfNotExist = async () => {
 
     await client.query(createTablesQuery);
 
-    // Créer les index pour améliorer les performances
+    // Créer les index
     const createIndexesQuery = `
       -- Index pour utilisateurs
       CREATE INDEX IF NOT EXISTS idx_utilisateurs_email ON utilisateurs(email);
@@ -246,6 +226,13 @@ const createTablesIfNotExist = async () => {
       -- Index pour étudiants
       CREATE INDEX IF NOT EXISTS idx_etudiants_id_utilisateur ON etudiants(id_utilisateur);
       CREATE INDEX IF NOT EXISTS idx_etudiants_matricule ON etudiants(matricule);
+      
+      -- Index pour matières
+      CREATE INDEX IF NOT EXISTS idx_matieres_code_matiere ON matieres(code_matiere);
+      
+      -- Index pour enseignant_matiere
+      CREATE INDEX IF NOT EXISTS idx_enseignant_matiere_enseignant ON enseignant_matiere(id_enseignant);
+      CREATE INDEX IF NOT EXISTS idx_enseignant_matiere_matiere ON enseignant_matiere(id_matiere);
       
       -- Index pour présences
       CREATE INDEX IF NOT EXISTS idx_presences_etudiant_date ON presences(id_etudiant, date_presence);
@@ -277,7 +264,7 @@ const checkAndFixDatabaseStructure = async () => {
   try {
     console.log('🔍 Vérification de la structure de la base...');
     
-    const requiredTables = ['utilisateurs', 'enseignants', 'etudiants', 'matieres', 'presences', 'qr_sessions'];
+    const requiredTables = ['utilisateurs', 'enseignants', 'etudiants', 'matieres', 'enseignant_matiere', 'presences', 'qr_sessions'];
     
     for (const table of requiredTables) {
       try {
@@ -290,10 +277,10 @@ const checkAndFixDatabaseStructure = async () => {
         `, [table]);
         
         if (!check.rows[0].exists) {
-          console.log(`⚠️  Table "${table}" manquante, création...`);
+          console.log(`⚠️  Table "${table}" manquante, création de toutes les tables...`);
           await createTablesIfNotExist();
-          console.log(`✅ Table "${table}" créée`);
-          break; // Les tables sont créées ensemble, pas besoin de continuer
+          console.log(`✅ Tables créées`);
+          break; // Les tables sont créées ensemble
         }
       } catch (error) {
         console.error(`❌ Erreur vérification table "${table}":`, error.message);
