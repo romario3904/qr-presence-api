@@ -3,41 +3,26 @@ const express = require('express');
 const router = express.Router();
 const { authenticateToken, authorize } = require('../middleware/authMiddleware');
 const { 
-  getTeacherMatieres, 
-  getMatiereById,
   getAllMatieres,
+  getMatiereById,
   createMatiere,
   updateMatiere,
   deleteMatiere
 } = require('../controllers/matiereController');
 
-// Récupérer toutes les matières (admin)
-router.get('/all', authenticateToken, authorize(['admin', 'enseignant']), getAllMatieres);
-
-// Récupérer toutes les matières de l'enseignant
-router.get('/', authenticateToken, authorize('enseignant'), getTeacherMatieres);
-
-// Créer une nouvelle matière
-router.post('/', authenticateToken, authorize('enseignant'), createMatiere);
+// Récupérer toutes les matières (pour tous les utilisateurs authentifiés)
+router.get('/', authenticateToken, getAllMatieres);
 
 // Récupérer une matière spécifique
-router.get('/:id', authenticateToken, authorize('enseignant'), getMatiereById);
+router.get('/:id', authenticateToken, getMatiereById);
 
-// Mettre à jour une matière
-router.put('/:id', authenticateToken, authorize('enseignant'), updateMatiere);
+// Créer une nouvelle matière (enseignant et admin)
+router.post('/', authenticateToken, authorize(['enseignant', 'admin']), createMatiere);
 
-// Supprimer une matière
-router.delete('/:id', authenticateToken, authorize('enseignant'), deleteMatiere);
+// Mettre à jour une matière (enseignant et admin)
+router.put('/:id', authenticateToken, authorize(['enseignant', 'admin']), updateMatiere);
 
-// Route de santé spécifique pour matières
-router.get('/health/check', authenticateToken, (req, res) => {
-  console.log('🏥 Vérification santé route matières');
-  res.json({
-    success: true,
-    message: 'Route matières fonctionnelle',
-    timestamp: new Date().toISOString(),
-    user: req.user.id
-  });
-});
+// Supprimer une matière (enseignant et admin) - NOUVELLE ROUTE
+router.delete('/:id', authenticateToken, authorize(['enseignant', 'admin']), deleteMatiere);
 
 module.exports = router;
