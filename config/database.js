@@ -237,7 +237,30 @@ const createTablesIfNotExist = async () => {
         qr_code TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+           -- Table des séances de cours (NOUVELLE TABLE)
+      CREATE TABLE IF NOT EXISTS seances_cours (
+        id_seance SERIAL PRIMARY KEY,
+        id_matiere INTEGER REFERENCES matieres(id_matiere),
+        date_seance DATE NOT NULL,
+        heure_debut TIME NOT NULL,
+        heure_fin TIME NOT NULL,
+        salle VARCHAR(50) NOT NULL,
+        qr_code VARCHAR(255),
+        qr_expire TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
 
+      -- Table des présences (corrigée)
+      CREATE TABLE IF NOT EXISTS presences (
+        id_presence SERIAL PRIMARY KEY,
+        id_etudiant INTEGER REFERENCES etudiants(id_etudiant),
+        id_seance INTEGER REFERENCES seances_cours(id_seance),
+        id_matiere INTEGER REFERENCES matieres(id_matiere),
+        statut VARCHAR(20) DEFAULT 'present' CHECK (statut IN ('present', 'absent', 'retard', 'justifie')),
+        date_scan TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
       -- Table des sessions QR
       CREATE TABLE IF NOT EXISTS qr_sessions (
         id_session SERIAL PRIMARY KEY,
@@ -265,6 +288,15 @@ const createTablesIfNotExist = async () => {
       
       -- Index pour matières
       CREATE INDEX IF NOT EXISTS idx_matieres_code_matiere ON matieres(code_matiere);
+
+           -- Index pour seances_cours
+      CREATE INDEX IF NOT EXISTS idx_seances_cours_matiere ON seances_cours(id_matiere);
+      CREATE INDEX IF NOT EXISTS idx_seances_cours_date ON seances_cours(date_seance);
+      CREATE INDEX IF NOT EXISTS idx_seances_cours_qr_expire ON seances_cours(qr_expire);
+      
+      -- Index pour presences
+      CREATE INDEX IF NOT EXISTS idx_presences_seance ON presences(id_seance);
+      CREATE INDEX IF NOT EXISTS idx_presences_etudiant_seance ON presences(id_etudiant, id_seance);
       
       -- Index pour enseignant_matiere
       CREATE INDEX IF NOT EXISTS idx_enseignant_matiere_enseignant ON enseignant_matiere(id_enseignant);
