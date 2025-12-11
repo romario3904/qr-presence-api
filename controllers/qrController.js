@@ -1,4 +1,4 @@
-// controllers/qrController.js
+// controllers/qrController.js (VERSION CORRIGÉE)
 const db = require('../config/database');
 
 // Fonction pour générer un token QR unique
@@ -72,7 +72,7 @@ const generateQRCode = async (req, res) => {
 
     // Générer token
     const qrToken = generateQRToken();
-    const qrExpire = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const qrExpire = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 heures
 
     // Transaction
     connection = await db.getConnection();
@@ -132,7 +132,8 @@ const generateQRCode = async (req, res) => {
     console.error('❌ Erreur génération QR:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la génération du QR code'
+      message: 'Erreur lors de la génération du QR code',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -188,9 +189,9 @@ const verifyQRCode = async (req, res) => {
 
     const etudiantId = etudiants[0].id_etudiant;
 
-    // Vérifier si déjà présent
+    // Vérifier si déjà présent (table corrigée: presences au lieu de presence)
     const resultPresences = await db.query(
-      'SELECT id_presence FROM presence WHERE id_seance = $1 AND id_etudiant = $2',
+      'SELECT id_presence FROM presences WHERE id_seance = $1 AND id_etudiant = $2',
       [seance.id_seance, etudiantId]
     );
     const presences = resultPresences.rows;
@@ -209,13 +210,14 @@ const verifyQRCode = async (req, res) => {
     const retardMinutes = Math.floor((heureActuelle - heureSeance) / (1000 * 60));
     
     let statut = 'present';
-    if (retardMinutes > 15) statut = 'late';
+    if (retardMinutes > 15) statut = 'retard';
     if (retardMinutes > 60) statut = 'absent';
 
-    // Marquer la présence
-    await db.query(
-      'INSERT INTO presence (id_seance, id_etudiant, statut, date_scan) VALUES ($1, $2, $3, NOW())',
-      [seance.id_seance, etudiantId, statut]
+    // Marquer la présence (table corrigée)
+    const resultInsert = await db.query(
+      `INSERT INTO presences (id_seance, id_etudiant, id_matiere, statut) 
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [seance.id_seance, etudiantId, seance.id_matiere, statut]
     );
 
     console.log(`✅ Étudiant ${etudiantId} marqué ${statut} pour séance ${seance.id_seance}`);
@@ -241,7 +243,8 @@ const verifyQRCode = async (req, res) => {
     console.error('❌ Erreur vérification QR:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la vérification du QR code'
+      message: 'Erreur lors de la vérification du QR code',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -293,9 +296,9 @@ const scanQRCode = async (req, res) => {
       });
     }
     
-    // Vérifier si déjà présent
+    // Vérifier si déjà présent (table corrigée)
     const resultPresences = await db.query(
-      'SELECT * FROM presence WHERE id_seance = $1 AND id_etudiant = $2',
+      'SELECT * FROM presences WHERE id_seance = $1 AND id_etudiant = $2',
       [id_seance, id_etudiant]
     );
     const presences = resultPresences.rows;
@@ -315,13 +318,14 @@ const scanQRCode = async (req, res) => {
     const retardMinutes = Math.floor((heureActuelle - heureSeance) / (1000 * 60));
     
     let statut = 'present';
-    if (retardMinutes > 15) statut = 'late';
+    if (retardMinutes > 15) statut = 'retard';
     if (retardMinutes > 60) statut = 'absent';
     
-    // Enregistrer
-    await db.query(
-      'INSERT INTO presence (id_seance, id_etudiant, statut, date_scan) VALUES ($1, $2, $3, NOW())',
-      [id_seance, id_etudiant, statut]
+    // Enregistrer (table corrigée)
+    const resultInsert = await db.query(
+      `INSERT INTO presences (id_seance, id_etudiant, id_matiere, statut) 
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [id_seance, id_etudiant, seance.id_matiere, statut]
     );
     
     res.json({
@@ -344,13 +348,17 @@ const scanQRCode = async (req, res) => {
     console.error('❌ Erreur scan:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur'
+      message: 'Erreur serveur lors du scan',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-// Controller pour récupérer les séances d'un enseignant
+// Controller pour récupérer les séances d'un enseignant (FONCTION CORRIGÉE)
 const getTeacherSeances = async (req, res) => {
+  console.log('🔍 Début getTeacherSeances');
+  console.log('User ID:', req.user.id);
+  
   try {
     // Récupérer l'ID de l'enseignant
     const resultEnseignants = await db.query(
@@ -360,6 +368,7 @@ const getTeacherSeances = async (req, res) => {
     const enseignants = resultEnseignants.rows;
     
     if (enseignants.length === 0) {
+      console.log('❌ Profil enseignant non trouvé');
       return res.status(403).json({
         success: false,
         message: 'Profil enseignant non trouvé'
@@ -367,34 +376,69 @@ const getTeacherSeances = async (req, res) => {
     }
 
     const enseignantId = enseignants[0].id_enseignant;
+    console.log('✅ ID enseignant:', enseignantId);
 
-    // Récupérer les séances
-    const resultSeances = await db.query(
-      `SELECT s.*, m.nom_matiere, m.code_matiere,
-              COUNT(p.id_presence) as nombre_presents
-       FROM seances_cours s
-       JOIN matieres m ON s.id_matiere = m.id_matiere
-       JOIN enseignant_matiere em ON m.id_matiere = em.id_matiere
-       LEFT JOIN presence p ON s.id_seance = p.id_seance
-       WHERE em.id_enseignant = $1
-       GROUP BY s.id_seance, m.nom_matiere, m.code_matiere
-       ORDER BY s.date_seance DESC, s.heure_debut DESC`,
-      [enseignantId]
-    );
+    // Récupérer les séances (REQUÊTE CORRIGÉE)
+    const queryText = `
+      SELECT 
+        s.*, 
+        m.nom_matiere, 
+        m.code_matiere,
+        COUNT(p.id_presence) as nombre_presents
+      FROM seances_cours s
+      JOIN matieres m ON s.id_matiere = m.id_matiere
+      JOIN enseignant_matiere em ON m.id_matiere = em.id_matiere
+      LEFT JOIN presences p ON s.id_seance = p.id_seance AND p.statut = 'present'
+      WHERE em.id_enseignant = $1
+      GROUP BY s.id_seance, m.nom_matiere, m.code_matiere
+      ORDER BY s.date_seance DESC, s.heure_debut DESC
+    `;
+    
+    console.log('SQL Query séances:', queryText);
+    
+    const resultSeances = await db.query(queryText, [enseignantId]);
     const seances = resultSeances.rows;
 
     console.log(`✅ ${seances.length} séances récupérées pour l'enseignant ${enseignantId}`);
 
     res.json({
       success: true,
+      count: seances.length,
       seances: seances
     });
 
   } catch (error) {
     console.error('❌ Erreur récupération séances:', error);
+    console.error('Stack trace:', error.stack);
+    
+    // Vérifier si les tables existent
+    try {
+      const checkSeancesTable = await db.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name = 'seances_cours'
+        )
+      `);
+      console.log('Table seances_cours existe?', checkSeancesTable.rows[0].exists);
+      
+      const checkPresencesTable = await db.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name = 'presences'
+        )
+      `);
+      console.log('Table presences existe?', checkPresencesTable.rows[0].exists);
+    } catch (e) {
+      console.error('Erreur vérification tables:', e);
+    }
+    
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la récupération des séances'
+      message: 'Erreur lors de la récupération des séances',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      hint: process.env.NODE_ENV === 'development' ? 'Vérifiez les tables seances_cours et presences' : undefined
     });
   }
 };
@@ -418,13 +462,13 @@ const getStudentPresences = async (req, res) => {
 
     const etudiantId = etudiants[0].id_etudiant;
 
-    // Récupérer les présences
+    // Récupérer les présences (REQUÊTE CORRIGÉE)
     const resultPresences = await db.query(
       `SELECT p.*, 
-              s.date_seance, s.heure_debut, s.heure_fin, s.salle,
+              s.date_seance, s.heure_debut, s.heure_fin, s.salle, s.qr_code,
               m.nom_matiere, m.code_matiere,
               e.nom as enseignant_nom, e.prenom as enseignant_prenom
-       FROM presence p
+       FROM presences p
        JOIN seances_cours s ON p.id_seance = s.id_seance
        JOIN matieres m ON s.id_matiere = m.id_matiere
        JOIN enseignant_matiere em ON m.id_matiere = em.id_matiere
@@ -455,24 +499,13 @@ const getStudentPresencesById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Vérifier si l'utilisateur est admin ou l'étudiant lui-même
-    const isAdmin = req.user.role === 'admin';
-    const isStudent = req.user.id_etudiant === parseInt(id);
-    
-    if (!isAdmin && !isStudent) {
-      return res.status(403).json({
-        success: false,
-        message: 'Non autorisé'
-      });
-    }
-
     // Récupérer les présences
     const resultPresences = await db.query(
       `SELECT p.*, 
-              s.date_seance, s.heure_debut, s.heure_fin, s.salle,
+              s.date_seance, s.heure_debut, s.heure_fin, s.salle, s.qr_code,
               m.nom_matiere, m.code_matiere,
               e.nom as enseignant_nom, e.prenom as enseignant_prenom
-       FROM presence p
+       FROM presences p
        JOIN seances_cours s ON p.id_seance = s.id_seance
        JOIN matieres m ON s.id_matiere = m.id_matiere
        JOIN enseignant_matiere em ON m.id_matiere = em.id_matiere
