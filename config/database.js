@@ -12,11 +12,12 @@ const poolConfig = {
   ssl: {
     rejectUnauthorized: false
   },
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
+  max: 20, // Nombre max de connexions
+  idleTimeoutMillis: 30000, // Fermer les connexions inactives après 30s
+  connectionTimeoutMillis: 10000, // Timeout de connexion de 10s
 };
 
+// Valider la configuration
 if (!process.env.DATABASE_URL) {
   console.error('❌ ERREUR: DATABASE_URL non défini dans .env');
   console.error('Veuillez définir DATABASE_URL dans votre fichier .env');
@@ -25,6 +26,7 @@ if (!process.env.DATABASE_URL) {
 
 const pool = new Pool(poolConfig);
 
+// Log des événements du pool
 pool.on('connect', () => {
   console.log('✅ Connexion PostgreSQL établie');
 });
@@ -32,6 +34,18 @@ pool.on('connect', () => {
 pool.on('error', (err) => {
   console.error('💥 Erreur PostgreSQL:', err.message);
   console.error('Code erreur:', err.code);
+});
+
+pool.on('acquire', () => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('📥 Connexion acquise du pool');
+  }
+});
+
+pool.on('remove', () => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('📤 Connexion retirée du pool');
+  }
 });
 
 // Fonction d'initialisation de la base de données
@@ -42,11 +56,13 @@ const initializeDatabase = async () => {
     
     client = await pool.connect();
     
+    // Test de requête simple
     const result = await client.query('SELECT NOW() as server_time, version() as pg_version');
     console.log('✅ Connecté à PostgreSQL avec succès');
     console.log(`📅 Heure du serveur: ${result.rows[0].server_time}`);
     console.log(`📊 Version PostgreSQL: ${result.rows[0].pg_version.split(',')[0]}`);
     
+    // Vérifier les tables
     const tables = await client.query(`
       SELECT table_name 
       FROM information_schema.tables 
@@ -64,6 +80,21 @@ const initializeDatabase = async () => {
     console.error('❌ Échec de la connexion PostgreSQL:');
     console.error('Message:', error.message);
     console.error('Code:', error.code);
+    
+    if (error.code === '28P01') {
+      console.log('\n🔧 Problème d\'authentification:');
+      console.log('   1. Vérifiez vos identifiants dans DATABASE_URL');
+      console.log('   2. Le mot de passe pourrait être incorrect');
+      console.log('   3. L\'utilisateur "ctrl_presence_user" existe-t-il ?');
+    } else if (error.code === '3D000') {
+      console.log('\n🔧 Base de données non trouvée:');
+      console.log('   La base "ctrl_presence" n\'existe pas sur Render');
+    } else if (error.message.includes('getaddrinfo ENOTFOUND')) {
+      console.log('\n🔧 Problème de DNS:');
+      console.log('   L\'hôte "dpg-d4rga9ali9vc73a1kdv0-a" n\'est pas résolu');
+      console.log('   Vérifiez que l\'instance PostgreSQL sur Render est active');
+    }
+    
     return false;
   } finally {
     if (client) client.release();
@@ -87,7 +118,7 @@ const query = async (text, params = []) => {
   }
 };
 
-// Alias pour compatibilité
+// Alias pour compatibilité avec les controllers existants
 const execute = async (queryText, params = []) => {
   return query(queryText, params);
 };
@@ -106,6 +137,9 @@ const getConnection = async () => {
     },
     rollback: async () => {
       await client.query('ROLLBACK');
+    },
+    end: async () => {
+      await client.release();
     }
   };
 };
@@ -121,7 +155,7 @@ const testConnection = async () => {
   }
 };
 
-// Fonction pour créer les tables nécessaires - CORRIGÉE
+// Fonction pour créer les tables nécessaires (VERSION CORRIGÉE)
 const createTablesIfNotExist = async () => {
   let client;
   try {
@@ -169,25 +203,27 @@ const createTablesIfNotExist = async () => {
         date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Table des matières - CORRIGÉE
+      -- Table des matières (VERSION CORRIGÉE)
       CREATE TABLE IF NOT EXISTS matieres (
         id_matiere SERIAL PRIMARY KEY,
-        nom_matiere VARCHAR(255) NOT NULL,  -- Changé de 'nom' à 'nom_matiere'
-        code_matiere VARCHAR(50) UNIQUE NOT NULL,  -- Changé de 'code' à 'code_matiere'
+        nom_matiere VARCHAR(255) NOT NULL,
+        code_matiere VARCHAR(50) UNIQUE NOT NULL,
         description TEXT,
         credit INTEGER,
         niveau_enseignee VARCHAR(50),
         mention_enseignee VARCHAR(100),
         parcours_enseignee VARCHAR(100),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Table de relation enseignant_matiere
+      -- Table de liaison enseignant_matiere (NOUVELLE)
       CREATE TABLE IF NOT EXISTS enseignant_matiere (
-        id_enseignant INTEGER REFERENCES enseignants(id_enseignant) ON DELETE CASCADE,
-        id_matiere INTEGER REFERENCES matieres(id_matiere) ON DELETE CASCADE,
-        date_assignation TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id_enseignant, id_matiere)
+        id_enseignant_matiere SERIAL PRIMARY KEY,
+        id_enseignant INTEGER REFERENCES enseignants(id_enseignant),
+        id_matiere INTEGER REFERENCES matieres(id_matiere),
+        UNIQUE(id_enseignant, id_matiere),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       -- Table des présences
@@ -214,7 +250,7 @@ const createTablesIfNotExist = async () => {
 
     await client.query(createTablesQuery);
 
-    // Créer les index
+    // Créer les index pour améliorer les performances
     const createIndexesQuery = `
       -- Index pour utilisateurs
       CREATE INDEX IF NOT EXISTS idx_utilisateurs_email ON utilisateurs(email);
@@ -259,11 +295,12 @@ const createTablesIfNotExist = async () => {
   }
 };
 
-// Fonction pour vérifier et créer les tables si nécessaire
+// Fonction pour vérifier et créer les tables si nécessaire (VERSION CORRIGÉE)
 const checkAndFixDatabaseStructure = async () => {
   try {
     console.log('🔍 Vérification de la structure de la base...');
     
+    // Ajout de enseignant_matiere à la liste des tables requises
     const requiredTables = ['utilisateurs', 'enseignants', 'etudiants', 'matieres', 'enseignant_matiere', 'presences', 'qr_sessions'];
     
     for (const table of requiredTables) {
@@ -277,17 +314,58 @@ const checkAndFixDatabaseStructure = async () => {
         `, [table]);
         
         if (!check.rows[0].exists) {
-          console.log(`⚠️  Table "${table}" manquante, création de toutes les tables...`);
+          console.log(`⚠️  Table "${table}" manquante, création...`);
           await createTablesIfNotExist();
-          console.log(`✅ Tables créées`);
-          break; // Les tables sont créées ensemble
+          console.log(`✅ Table "${table}" créée`);
+          break; // Les tables sont créées ensemble, pas besoin de continuer
         }
       } catch (error) {
         console.error(`❌ Erreur vérification table "${table}":`, error.message);
       }
     }
     
-    console.log('✅ Structure vérifiée avec succès');
+    // Vérifier les colonnes de la table matieres
+    console.log('🔍 Vérification des colonnes de la table matieres...');
+    const checkMatiereColumns = await query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'matieres'
+    `);
+    
+    const matiereColumns = checkMatiereColumns.rows.map(row => row.column_name);
+    console.log('Colonnes matieres actuelles:', matiereColumns);
+    
+    // Vérifier et corriger les colonnes si nécessaire
+    if (!matiereColumns.includes('nom_matiere') && matiereColumns.includes('nom')) {
+      console.log('🔄 Renommage de la colonne "nom" en "nom_matiere"...');
+      await query('ALTER TABLE matieres RENAME COLUMN nom TO nom_matiere');
+      console.log('✅ Colonne renommée');
+    }
+    
+    if (!matiereColumns.includes('code_matiere') && matiereColumns.includes('code')) {
+      console.log('🔄 Renommage de la colonne "code" en "code_matiere"...');
+      await query('ALTER TABLE matieres RENAME COLUMN code TO code_matiere');
+      console.log('✅ Colonne renommée');
+    }
+    
+    // Ajouter les colonnes manquantes
+    const missingColumns = [
+      { name: 'credit', type: 'INTEGER' },
+      { name: 'niveau_enseignee', type: 'VARCHAR(50)' },
+      { name: 'mention_enseignee', type: 'VARCHAR(100)' },
+      { name: 'parcours_enseignee', type: 'VARCHAR(100)' },
+      { name: 'updated_at', type: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP' }
+    ];
+    
+    for (const col of missingColumns) {
+      if (!matiereColumns.includes(col.name)) {
+        console.log(`🔄 Ajout de la colonne "${col.name}"...`);
+        await query(`ALTER TABLE matieres ADD COLUMN ${col.name} ${col.type}`);
+        console.log(`✅ Colonne "${col.name}" ajoutée`);
+      }
+    }
+    
+    console.log('✅ Structure vérifiée et corrigée avec succès');
     return true;
   } catch (error) {
     console.error('❌ Erreur vérification structure:', error.message);
