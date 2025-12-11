@@ -1,78 +1,90 @@
 // controllers/matiereController.js
 const db = require('../config/database');
 
-// Fonction pour récupérer toutes les matières (pour enseignant et admin)
-const getAllMatieres = async (req, res) => {
+const getTeacherMatieres = async (req, res) => {
+  console.log('🔍 Début getTeacherMatieres');
+  console.log('User ID:', req.user.id);
+  
   try {
-    console.log('📥 Récupération des matières pour user:', req.user);
+    // Récupérer l'ID de l'enseignant
+    console.log('📋 Récupération ID enseignant pour utilisateur:', req.user.id);
+    const resultEnseignants = await db.query(
+      'SELECT id_enseignant FROM enseignants WHERE id_utilisateur = $1',
+      [req.user.id]
+    );
+    const enseignants = resultEnseignants.rows;
     
-    // Vérifier le rôle de l'utilisateur
-    if (req.user.role === 'admin') {
-      // Admin peut voir toutes les matières
-      const resultMatieres = await db.query(
-        'SELECT * FROM matieres ORDER BY nom_matiere'
-      );
-      const matieres = resultMatieres.rows;
-
-      return res.json({
-        success: true,
-        count: matieres.length,
-        matieres: matieres
-      });
-    } else if (req.user.role === 'enseignant') {
-      // Enseignant - Vérifier s'il existe dans la table enseignants
-      const resultEnseignant = await db.query(
-        'SELECT id_enseignant FROM enseignants WHERE id_utilisateur = $1',
-        [req.user.id]
-      );
-      
-      if (resultEnseignant.rows.length === 0) {
-        // Si l'enseignant n'existe pas encore, retourner un tableau vide
-        console.log('⚠️ Enseignant non trouvé dans la table enseignants');
-        return res.json({
-          success: true,
-          count: 0,
-          matieres: []
-        });
-      }
-
-      const id_enseignant = resultEnseignant.rows[0].id_enseignant;
-      
-      // Récupérer les matières de l'enseignant
-      const resultMatieres = await db.query(
-        `SELECT m.* 
-         FROM matieres m
-         LEFT JOIN enseignant_matiere em ON m.id_matiere = em.id_matiere
-         WHERE em.id_enseignant = $1 OR m.est_public = true
-         ORDER BY m.nom_matiere`,
-        [id_enseignant]
-      );
-      const matieres = resultMatieres.rows;
-
-      return res.json({
-        success: true,
-        count: matieres.length,
-        matieres: matieres
-      });
-    } else {
-      // Autres rôles (étudiant, etc.)
-      const resultMatieres = await db.query(
-        'SELECT * FROM matieres WHERE est_public = true ORDER BY nom_matiere'
-      );
-      const matieres = resultMatieres.rows;
-
-      return res.json({
-        success: true,
-        count: matieres.length,
-        matieres: matieres
+    console.log('Résultat recherche enseignant:', enseignants);
+    
+    if (enseignants.length === 0) {
+      console.log('❌ Profil enseignant non trouvé');
+      return res.status(403).json({
+        success: false,
+        message: 'Profil enseignant non trouvé'
       });
     }
+
+    const id_enseignant = enseignants[0].id_enseignant;
+    console.log('✅ ID enseignant trouvé:', id_enseignant);
+
+    // Récupérer les matières
+    console.log('📋 Récupération des matières pour enseignant:', id_enseignant);
+    const queryText = `
+      SELECT DISTINCT m.* 
+      FROM matieres m
+      INNER JOIN enseignant_matiere em ON m.id_matiere = em.id_matiere
+      WHERE em.id_enseignant = $1
+      ORDER BY m.nom_matiere
+    `;
+    
+    console.log('SQL Query:', queryText);
+    console.log('Paramètres:', [id_enseignant]);
+    
+    const resultMatieres = await db.query(queryText, [id_enseignant]);
+    const matieres = resultMatieres.rows;
+
+    console.log('✅ Matières trouvées:', matieres.length);
+    
+    // Log de débogage pour voir les données
+    if (matieres.length > 0) {
+      console.log('Exemple de matière:', {
+        id: matieres[0].id_matiere,
+        nom: matieres[0].nom_matiere,
+        code: matieres[0].code_matiere,
+        colonnes: Object.keys(matiere[0])
+      });
+    }
+
+    res.json({
+      success: true,
+      count: matieres.length,
+      matieres: matieres
+    });
   } catch (error) {
-    console.error('❌ Erreur récupération matières:', error);
+    console.error('❌ Erreur détaillée récupération matières:');
+    console.error('Message:', error.message);
+    console.error('Stack:', error.stack);
+    
+    // Informations supplémentaires pour le débogage
+    console.error('Table matieres existe?');
+    try {
+      const checkTable = await db.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name = 'matieres'
+        )
+      `);
+      console.error('Table matieres exists:', checkTable.rows[0].exists);
+    } catch (e) {
+      console.error('Erreur vérification table:', e.message);
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération des matières',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      hint: process.env.NODE_ENV === 'development' ? 'Vérifiez la structure de la table matieres' : undefined
     });
   }
 };
@@ -80,57 +92,75 @@ const getAllMatieres = async (req, res) => {
 const getMatiereById = async (req, res) => {
   try {
     const { id } = req.params;
+    console.log('🔍 Récupération matière ID:', id);
     
-    // Récupérer la matière
-    const resultMatiere = await db.query(
-      'SELECT * FROM matieres WHERE id_matiere = $1',
-      [id]
+    // Récupérer l'ID de l'enseignant
+    const resultEnseignants = await db.query(
+      'SELECT id_enseignant FROM enseignants WHERE id_utilisateur = $1',
+      [req.user.id]
     );
+    const enseignants = resultEnseignants.rows;
     
-    if (resultMatiere.rows.length === 0) {
-      return res.status(404).json({
+    if (enseignants.length === 0) {
+      return res.status(403).json({
         success: false,
-        message: 'Matière non trouvée'
+        message: 'Profil enseignant non trouvé'
       });
     }
 
-    const matiere = resultMatiere.rows[0];
+    const id_enseignant = enseignants[0].id_enseignant;
 
-    // Vérifier les autorisations
-    if (req.user.role === 'enseignant') {
-      const resultEnseignant = await db.query(
-        'SELECT id_enseignant FROM enseignants WHERE id_utilisateur = $1',
-        [req.user.id]
-      );
-      
-      if (resultEnseignant.rows.length > 0) {
-        const id_enseignant = resultEnseignant.rows[0].id_enseignant;
-        
-        // Vérifier si l'enseignant a accès à cette matière
-        const resultAccess = await db.query(
-          'SELECT * FROM enseignant_matiere WHERE id_enseignant = $1 AND id_matiere = $2',
-          [id_enseignant, id]
-        );
-        
-        // Si la matière n'est pas publique et que l'enseignant n'y a pas accès
-        if (resultAccess.rows.length === 0 && !matiere.est_public) {
-          return res.status(403).json({
-            success: false,
-            message: 'Accès non autorisé à cette matière'
-          });
-        }
-      }
+    // Vérifier que l'enseignant possède cette matière
+    const resultMatiere = await db.query(
+      `SELECT m.* 
+       FROM matieres m
+       INNER JOIN enseignant_matiere em ON m.id_matiere = em.id_matiere
+       WHERE em.id_enseignant = $1 AND m.id_matiere = $2`,
+      [id_enseignant, id]
+    );
+    const matiere = resultMatiere.rows;
+
+    if (matiere.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Matière non trouvée ou non autorisée'
+      });
     }
 
     res.json({
       success: true,
-      matiere: matiere
+      matiere: matiere[0]
     });
   } catch (error) {
-    console.error('❌ Erreur récupération matière:', error);
+    console.error('Erreur récupération matière:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération de la matière'
+    });
+  }
+};
+
+// Nouvelle fonction pour récupérer toutes les matières (admin)
+const getAllMatieres = async (req, res) => {
+  try {
+    console.log('🔍 Récupération de toutes les matières');
+    const resultMatieres = await db.query(
+      'SELECT * FROM matieres ORDER BY nom_matiere'
+    );
+    const matieres = resultMatieres.rows;
+
+    console.log('✅ Toutes matières trouvées:', matieres.length);
+
+    res.json({
+      success: true,
+      count: matieres.length,
+      matieres: matieres
+    });
+  } catch (error) {
+    console.error('Erreur récupération toutes matières:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la récupération des matières'
     });
   }
 };
@@ -159,6 +189,22 @@ const createMatiere = async (req, res) => {
       });
     }
 
+    // Récupérer l'ID de l'enseignant
+    const resultEnseignants = await db.query(
+      'SELECT id_enseignant FROM enseignants WHERE id_utilisateur = $1',
+      [req.user.id]
+    );
+    const enseignants = resultEnseignants.rows;
+    
+    if (enseignants.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Profil enseignant non trouvé'
+      });
+    }
+
+    const id_enseignant = enseignants[0].id_enseignant;
+
     // Vérifier si la matière existe déjà
     const existingMatiere = await db.query(
       'SELECT id_matiere FROM matieres WHERE code_matiere = $1',
@@ -172,63 +218,65 @@ const createMatiere = async (req, res) => {
       });
     }
 
-    // Créer la matière
-    const resultMatiere = await db.query(
-      `INSERT INTO matieres 
-       (nom_matiere, code_matiere, description, credit, niveau_enseignee, mention_enseignee, parcours_enseignee, created_by) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
-       RETURNING id_matiere, nom_matiere, code_matiere, description, credit, niveau_enseignee, mention_enseignee, parcours_enseignee`,
-      [
-        nom_matiere, 
-        code_matiere, 
-        description || null, 
-        credit || null, 
-        niveau_enseignee || null, 
-        mention_enseignee || null, 
-        parcours_enseignee || null,
-        req.user.id
-      ]
-    );
+    // Transaction
+    connection = await db.getConnection();
+    await connection.beginTransaction();
 
-    const nouvelleMatiere = resultMatiere.rows[0];
-
-    // Si l'utilisateur est un enseignant, associer la matière
-    if (req.user.role === 'enseignant') {
-      const resultEnseignant = await db.query(
-        'SELECT id_enseignant FROM enseignants WHERE id_utilisateur = $1',
-        [req.user.id]
+    try {
+      // Créer la matière
+      const resultMatiere = await connection.query(
+        `INSERT INTO matieres (nom_matiere, code_matiere, description, credit, niveau_enseignee, mention_enseignee, parcours_enseignee) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7) 
+         RETURNING id_matiere, nom_matiere, code_matiere, description, credit, niveau_enseignee, mention_enseignee, parcours_enseignee, created_at`,
+        [nom_matiere, code_matiere, description || null, credit || null, niveau_enseignee || null, mention_enseignee || null, parcours_enseignee || null]
       );
-      
-      if (resultEnseignant.rows.length > 0) {
-        const id_enseignant = resultEnseignant.rows[0].id_enseignant;
-        
-        await db.query(
-          'INSERT INTO enseignant_matiere (id_enseignant, id_matiere) VALUES ($1, $2)',
-          [id_enseignant, nouvelleMatiere.id_matiere]
-        );
+
+      const nouvelleMatiere = resultMatiere.rows[0];
+
+      // Associer la matière à l'enseignant
+      await connection.query(
+        'INSERT INTO enseignant_matiere (id_enseignant, id_matiere) VALUES ($1, $2)',
+        [id_enseignant, nouvelleMatiere.id_matiere]
+      );
+
+      await connection.commit();
+
+      console.log('✅ Matière créée:', nouvelleMatiere);
+
+      res.status(201).json({
+        success: true,
+        message: 'Matière créée avec succès',
+        id_matiere: nouvelleMatiere.id_matiere,
+        matiere: nouvelleMatiere
+      });
+
+    } catch (transactionError) {
+      if (connection) await connection.rollback();
+      console.error('❌ Erreur transaction création matière:', transactionError);
+      throw transactionError;
+    } finally {
+      if (connection) {
+        try {
+          connection.release();
+        } catch (e) {
+          console.error('Erreur release connection:', e);
+        }
       }
     }
-
-    console.log('✅ Matière créée:', nouvelleMatiere.id_matiere);
-
-    res.status(201).json({
-      success: true,
-      message: 'Matière créée avec succès',
-      matiere: nouvelleMatiere
-    });
 
   } catch (error) {
     console.error('❌ Erreur création matière:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la création de la matière',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 // Mettre à jour une matière
 const updateMatiere = async (req, res) => {
+  let connection;
   try {
     const { id } = req.params;
     const { 
@@ -241,7 +289,7 @@ const updateMatiere = async (req, res) => {
       parcours_enseignee 
     } = req.body;
 
-    console.log('📥 Mise à jour matière:', { id, ...req.body });
+    console.log('📥 Mise à jour matière ID:', id, 'Données:', req.body);
 
     // Validation
     if (!nom_matiere || !code_matiere) {
@@ -251,32 +299,40 @@ const updateMatiere = async (req, res) => {
       });
     }
 
-    // Vérifier si la matière existe
-    const existingMatiere = await db.query(
-      'SELECT * FROM matieres WHERE id_matiere = $1',
-      [id]
+    // Récupérer l'ID de l'enseignant
+    const resultEnseignants = await db.query(
+      'SELECT id_enseignant FROM enseignants WHERE id_utilisateur = $1',
+      [req.user.id]
     );
-
-    if (existingMatiere.rows.length === 0) {
-      return res.status(404).json({
+    const enseignants = resultEnseignants.rows;
+    
+    if (enseignants.length === 0) {
+      return res.status(403).json({
         success: false,
-        message: 'Matière non trouvée'
+        message: 'Profil enseignant non trouvé'
       });
     }
 
-    // Vérifier les autorisations
-    if (req.user.role === 'enseignant') {
-      // Vérifier si l'enseignant a créé cette matière
-      if (existingMatiere.rows[0].created_by !== req.user.id) {
-        return res.status(403).json({
-          success: false,
-          message: 'Vous n\'êtes pas autorisé à modifier cette matière'
-        });
-      }
+    const id_enseignant = enseignants[0].id_enseignant;
+
+    // Vérifier que l'enseignant possède cette matière
+    const resultMatiere = await db.query(
+      `SELECT m.* 
+       FROM matieres m
+       INNER JOIN enseignant_matiere em ON m.id_matiere = em.id_matiere
+       WHERE em.id_enseignant = $1 AND m.id_matiere = $2`,
+      [id_enseignant, id]
+    );
+
+    if (resultMatiere.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Matière non trouvée ou non autorisée'
+      });
     }
 
     // Vérifier si le code existe déjà pour une autre matière
-    if (code_matiere !== existingMatiere.rows[0].code_matiere) {
+    if (code_matiere !== resultMatiere.rows[0].code_matiere) {
       const existingCode = await db.query(
         'SELECT id_matiere FROM matieres WHERE code_matiere = $1 AND id_matiere != $2',
         [code_matiere, id]
@@ -297,21 +353,18 @@ const updateMatiere = async (req, res) => {
            niveau_enseignee = $5, mention_enseignee = $6, parcours_enseignee = $7,
            updated_at = CURRENT_TIMESTAMP
        WHERE id_matiere = $8
-       RETURNING id_matiere, nom_matiere, code_matiere, description, credit, 
-                 niveau_enseignee, mention_enseignee, parcours_enseignee`,
-      [
-        nom_matiere, 
-        code_matiere, 
-        description || null, 
-        credit || null, 
-        niveau_enseignee || null, 
-        mention_enseignee || null, 
-        parcours_enseignee || null, 
-        id
-      ]
+       RETURNING id_matiere, nom_matiere, code_matiere, description, credit, niveau_enseignee, mention_enseignee, parcours_enseignee, created_at, updated_at`,
+      [nom_matiere, code_matiere, description || null, credit || null, niveau_enseignee || null, mention_enseignee || null, parcours_enseignee || null, id]
     );
 
-    console.log('✅ Matière mise à jour:', id);
+    if (resultUpdate.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Matière non trouvée'
+      });
+    }
+
+    console.log('✅ Matière mise à jour:', resultUpdate.rows[0]);
 
     res.json({
       success: true,
@@ -323,60 +376,74 @@ const updateMatiere = async (req, res) => {
     console.error('❌ Erreur mise à jour matière:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la mise à jour de la matière',
-      error: error.message
+      message: 'Erreur lors de la mise à jour de la matière'
     });
   }
 };
 
-// Supprimer une matière (NOUVELLE FONCTION)
+// Ajouter une fonction de suppression
 const deleteMatiere = async (req, res) => {
   try {
     const { id } = req.params;
-
-    console.log('🗑️ Suppression matière:', id);
-
-    // Vérifier si la matière existe
-    const existingMatiere = await db.query(
-      'SELECT * FROM matieres WHERE id_matiere = $1',
-      [id]
+    console.log('🗑️  Suppression matière ID:', id);
+    
+    // Récupérer l'ID de l'enseignant
+    const resultEnseignants = await db.query(
+      'SELECT id_enseignant FROM enseignants WHERE id_utilisateur = $1',
+      [req.user.id]
     );
-
-    if (existingMatiere.rows.length === 0) {
-      return res.status(404).json({
+    const enseignants = resultEnseignants.rows;
+    
+    if (enseignants.length === 0) {
+      return res.status(403).json({
         success: false,
-        message: 'Matière non trouvée'
+        message: 'Profil enseignant non trouvé'
       });
     }
 
-    // Vérifier les autorisations
-    if (req.user.role === 'enseignant') {
-      // Vérifier si l'enseignant a créé cette matière
-      if (existingMatiere.rows[0].created_by !== req.user.id) {
-        return res.status(403).json({
-          success: false,
-          message: 'Vous n\'êtes pas autorisé à supprimer cette matière'
-        });
-      }
+    const id_enseignant = enseignants[0].id_enseignant;
+
+    // Vérifier que l'enseignant possède cette matière
+    const resultMatiere = await db.query(
+      `SELECT m.* 
+       FROM matieres m
+       INNER JOIN enseignant_matiere em ON m.id_matiere = em.id_matiere
+       WHERE em.id_enseignant = $1 AND m.id_matiere = $2`,
+      [id_enseignant, id]
+    );
+
+    if (resultMatiere.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Matière non trouvée ou non autorisée'
+      });
     }
 
-    // Supprimer d'abord les relations dans enseignant_matiere
+    // Supprimer d'abord la liaison
     await db.query(
-      'DELETE FROM enseignant_matiere WHERE id_matiere = $1',
+      'DELETE FROM enseignant_matiere WHERE id_enseignant = $1 AND id_matiere = $2',
+      [id_enseignant, id]
+    );
+
+    // Puis supprimer la matière
+    const resultDelete = await db.query(
+      'DELETE FROM matieres WHERE id_matiere = $1 RETURNING id_matiere',
       [id]
     );
 
-    // Supprimer la matière
-    await db.query(
-      'DELETE FROM matieres WHERE id_matiere = $1',
-      [id]
-    );
+    if (resultDelete.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Matière non trouvée après vérification'
+      });
+    }
 
     console.log('✅ Matière supprimée:', id);
 
     res.json({
       success: true,
-      message: 'Matière supprimée avec succès'
+      message: 'Matière supprimée avec succès',
+      id_matiere: id
     });
 
   } catch (error) {
@@ -384,30 +451,16 @@ const deleteMatiere = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la suppression de la matière',
-      error: error.message
-    });
-  }
-};
-
-// Fonction pour récupérer les matières d'un enseignant spécifique (compatibilité)
-const getTeacherMatieres = async (req, res) => {
-  try {
-    // Appeler getAllMatieres qui gère déjà la logique
-    return await getAllMatieres(req, res);
-  } catch (error) {
-    console.error('❌ Erreur getTeacherMatieres:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de la récupération des matières'
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 module.exports = {
-  getAllMatieres,
+  getTeacherMatieres,
   getMatiereById,
+  getAllMatieres,
   createMatiere,
   updateMatiere,
-  deleteMatiere,
-  getTeacherMatieres
+  deleteMatiere  // Ajout de la fonction de suppression
 };
