@@ -15,11 +15,27 @@ const matiereRoutes = require('./routes/matiere');
 const app = express();
 
 // Configuration CORS
+const parseCorsOrigins = (value) => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (trimmed === '*') return '*';
+  return trimmed
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+};
+
+const corsOriginsFromEnv = parseCorsOrigins(process.env.CORS_ORIGIN);
+const defaultDevOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'];
+
 const corsOptions = {
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin:
+    corsOriginsFromEnv === '*'
+      ? (origin, cb) => cb(null, true)
+      : corsOriginsFromEnv || defaultDevOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
 };
 
 // Middleware CORS
