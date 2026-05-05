@@ -14,12 +14,37 @@ const matiereRoutes = require('./routes/matiere');
 
 const app = express();
 
-// Configuration CORS
+// Configuration CORS - IMPORTANT pour Vercel
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  process.env.FRONTEND_URL,
+  'https://*.vercel.app'
+].filter(Boolean);
+
 const corsOptions = {
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: function(origin, callback) {
+    // Permettre les requêtes sans origin (Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.some(allowed => {
+      if (allowed.includes('*')) {
+        const pattern = allowed.replace(/\*/g, '.*');
+        return new RegExp(`^${pattern}$`).test(origin);
+      }
+      return allowed === origin;
+    })) {
+      callback(null, true);
+    } else {
+      console.log(`❌ CORS bloqué: ${origin}`);
+      callback(null, true); // En production, mettez false
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
 };
 
 // Middleware CORS
@@ -33,192 +58,109 @@ app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
   console.log(`📥 ${req.method} ${req.url}`);
   if (req.method === 'POST' || req.method === 'PUT') {
-    console.log(`📦 Body:`, req.body);
+    console.log(`📦 Body:`, JSON.stringify(req.body).substring(0, 200));
   }
   next();
 });
 
-// Initialisation asynchrone du serveur
+// Route de santé (sans authentification)
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// Lancement du serveur
 async function startServer() {
   try {
     console.log('🎯 Démarrage de l\'API Contrôle de Présence...');
     console.log('=============================================');
+    console.log(`🌍 Environnement: ${process.env.NODE_ENV || 'development'}`);
     
-    // 1. Initialiser la base de données
-    console.log('🔧 Initialisation de la base de données...');
+    // Initialiser la base de données
+    console.log('🔧 Connexion à la base de données...');
     const dbConnected = await initializeDatabase();
     
     if (!dbConnected) {
-      throw new Error('❌ Impossible de se connecter à la base de données');
+      console.error('❌ Impossible de se connecter à la base de données');
+      process.exit(1);
     }
     
-    console.log('✅ Base de données connectée avec succès');
+    console.log('✅ Base de données connectée');
     
-    // 2. Monter les routes
+    // Monter les routes
     console.log('🛣️  Configuration des routes...');
     app.use('/api/auth', authRoutes);
     app.use('/api/qr', qrRoutes);
     app.use('/api/presence', presenceRoutes);
     app.use('/api/matiere', matiereRoutes);
     
-    // 3. Routes de base
-    setupBaseRoutes();
+    // Route racine
+    app.get('/', (req, res) => {
+      res.json({
+        message: 'API Contrôle de Présence 🚀',
+        version: '1.0.0',
+        status: 'running',
+        endpoints: {
+          auth: '/api/auth',
+          qr: '/api/qr',
+          presence: '/api/presence',
+          matiere: '/api/matiere'
+        }
+      });
+    });
     
-    // 4. Démarrer le serveur
+    // Route 404
+    app.use('*', (req, res) => {
+      res.status(404).json({ 
+        success: false,
+        message: 'Route non trouvée',
+        path: req.originalUrl
+      });
+    });
+    
+    // Gestion des erreurs globales
+    app.use((error, req, res, next) => {
+      console.error('❌ Erreur serveur:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Erreur interne du serveur'
+      });
+    });
+    
+    // Démarrer le serveur
     const PORT = process.env.PORT || 3002;
     
     const server = app.listen(PORT, () => {
       console.log(`🚀 Serveur démarré sur le port ${PORT}`);
-      console.log(`📍 URL: http://localhost:${PORT}`);
-      console.log(`🌍 CORS autorisé pour: ${process.env.CORS_ORIGIN || 'http://localhost:3000'}`);
-      console.log(`📊 Environnement: ${process.env.NODE_ENV || 'development'}`);
-      console.log('\n✅ API prête à recevoir des requêtes !');
+      console.log(`📍 URL: https://${process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`}`);
+      console.log('\n✅ API prête !');
     });
     
     // Gestion des erreurs d'écoute
     server.on('error', (error) => {
       if (error.code === 'EADDRINUSE') {
         console.error(`❌ Le port ${PORT} est déjà utilisé`);
-        console.log('💡 Solutions:');
-        console.log(`   1. Changez le port dans le fichier .env`);
-        console.log(`   2. Tuez le processus avec:`);
-        console.log(`      netstat -ano | findstr :${PORT}`);
-        console.log(`      taskkill /PID [PID] /F`);
       }
       process.exit(1);
     });
     
-    // Gestion propre de l'arrêt
-    setupGracefulShutdown(server);
+    // Arrêt propre
+    process.on('SIGINT', () => {
+      console.log('\n🔻 Arrêt du serveur...');
+      server.close(() => {
+        pool.end(() => {
+          console.log('👋 Arrêt complet');
+          process.exit(0);
+        });
+      });
+    });
     
   } catch (error) {
     console.error('💥 Erreur au démarrage:', error.message);
-    console.log('\n🔧 Vérifiez que:');
-    console.log('   1. PostgreSQL est démarré');
-    console.log('   2. Le fichier .env est correctement configuré');
-    console.log('   3. La base "ctrl_presence" existe');
     process.exit(1);
   }
 }
 
-// Fonction pour configurer les routes de base
-function setupBaseRoutes() {
-  // Route racine
-  app.get('/', (req, res) => {
-    res.json({
-      message: 'API Server is running! 🚀',
-      version: '1.0.0',
-      database: 'PostgreSQL',
-      timestamp: new Date().toISOString(),
-      endpoints: {
-        auth: '/api/auth',
-        qr: '/api/qr',
-        presence: '/api/presence',
-        matiere: '/api/matiere',
-        health: '/api/health',
-        docs: '/api/docs'
-      }
-    });
-  });
-
-  // Route de santé
-  app.get('/api/health', async (req, res) => {
-    try {
-      const { testConnection } = require('./config/database');
-      const dbHealthy = await testConnection();
-      
-      res.json({ 
-        status: 'OK',
-        message: 'Serveur en ligne',
-        database: dbHealthy ? 'CONNECTED' : 'DISCONNECTED',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-      });
-    } catch (error) {
-      res.status(500).json({
-        status: 'ERROR',
-        message: 'Erreur de vérification'
-      });
-    }
-  });
-
-  // Documentation API
-  app.get('/api/docs', (req, res) => {
-    res.json({
-      title: 'API Documentation',
-      version: '1.0.0',
-      endpoints: {
-        auth: {
-          login: 'POST /api/auth/login',
-          register: 'POST /api/auth/register',
-          me: 'GET /api/auth/me'
-        },
-        qr: {
-          generate: 'POST /api/qr/generate',
-          validate: 'POST /api/qr/validate'
-        },
-        presence: {
-          mark: 'POST /api/presence/mark',
-          history: 'GET /api/presence/history'
-        },
-        matiere: {
-          list: 'GET /api/matiere',
-          create: 'POST /api/matiere'
-        }
-      }
-    });
-  });
-
-  // Gestion des erreurs 404
-  app.use('*', (req, res) => {
-    res.status(404).json({ 
-      success: false,
-      message: 'Route non trouvée',
-      path: req.originalUrl
-    });
-  });
-
-  // Gestion des erreurs globales
-  app.use((error, req, res, next) => {
-    console.error('❌ Erreur:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Erreur interne du serveur'
-    });
-  });
-}
-
-// Fonction pour gérer l'arrêt propre
-function setupGracefulShutdown(server) {
-  const shutdown = async (signal) => {
-    console.log(`\n🔻 Réception du signal ${signal}...`);
-    
-    // Fermer le serveur
-    server.close(() => {
-      console.log('✅ Serveur HTTP fermé');
-      
-      // Fermer la base de données
-      const { pool } = require('./config/database');
-      pool.end(() => {
-        console.log('✅ Pool de connexions PostgreSQL fermé');
-        console.log('👋 Arrêt complet');
-        process.exit(0);
-      });
-    });
-    
-    // Timeout forcé après 10 secondes
-    setTimeout(() => {
-      console.error('❌ Arrêt forcé après timeout');
-      process.exit(1);
-    }, 10000);
-  };
-  
-  // Capturer les signaux d'arrêt
-  process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-}
-
-// Démarrer le serveur
+// Si exécuté directement
 if (require.main === module) {
   startServer();
 }
