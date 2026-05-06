@@ -8,9 +8,12 @@ const router = express.Router();
 // Routes publiques
 router.post('/login', login);
 router.post('/register', register);
+// Déconnexion: volontairement publique pour permettre un reset côté client
+// même si le token a expiré / est invalide (sinon la déconnexion peut échouer
+// et laisser le front "bloqué" avec un état auth incohérent).
+router.post('/logout', logout);
 
 // Routes protégées
-router.post('/logout', authenticateToken, logout);
 router.get('/profile', authenticateToken, getProfile);
 router.get('/verify', authenticateToken, verifyToken); // Nouvelle route
 

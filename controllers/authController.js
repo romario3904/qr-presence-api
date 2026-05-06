@@ -318,6 +318,10 @@ const getProfile = async (req, res) => {
 };
 
 const logout = (req, res) => {
+  // Stateless JWT: rien à invalider côté serveur.
+  // On renvoie néanmoins une réponse "no-store" pour éviter toute mise en cache
+  // et garantir un flow logout/login fiable côté client.
+  res.set('Cache-Control', 'no-store');
   res.json({ success: true, message: 'Déconnexion réussie' });
 };
 

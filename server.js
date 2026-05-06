@@ -4,7 +4,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 // Import de la base de données
-const { initializeDatabase } = require('./config/database');
+const { initializeDatabase, pool } = require('./config/database');
 
 // Routes
 const authRoutes = require('./routes/auth');
