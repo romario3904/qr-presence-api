@@ -15,12 +15,14 @@ const matiereRoutes = require('./routes/matiere');
 const app = express();
 
 // Configuration CORS - IMPORTANT pour Vercel
+const normalizeOrigin = (origin) => (origin ? origin.replace(/\/+$/, '') : origin);
+
 const allowedOrigins = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
-  process.env.FRONTEND_URL,
+  normalizeOrigin(process.env.FRONTEND_URL),
   'https://*.vercel.app'
 ].filter(Boolean);
 
