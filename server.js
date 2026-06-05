@@ -22,26 +22,27 @@ const allowedOrigins = [
   'http://127.0.0.1:3000',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
-  normalizeOrigin(process.env.FRONTEND_URL),
-  'https://*.vercel.app'
+  normalizeOrigin(process.env.FRONTEND_URL)
 ].filter(Boolean);
+
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+
+  const normalized = normalizeOrigin(origin);
+  if (allowedOrigins.includes(normalized)) return true;
+  if (/^https:\/\/[\w-]+(?:-[\w-]+)*\.vercel\.app$/.test(normalized)) return true;
+  if (/^https:\/\/[\w-]+(?:-[\w-]+)*\.onrender\.com$/.test(normalized)) return true;
+
+  return false;
+};
 
 const corsOptions = {
   origin: function(origin, callback) {
-    // Permettre les requêtes sans origin (Postman, etc.)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.some(allowed => {
-      if (allowed.includes('*')) {
-        const pattern = allowed.replace(/\*/g, '.*');
-        return new RegExp(`^${pattern}$`).test(origin);
-      }
-      return allowed === origin;
-    })) {
+    if (isOriginAllowed(origin)) {
       callback(null, true);
     } else {
       console.log(`❌ CORS bloqué: ${origin}`);
-      callback(null, true); // En production, mettez false
+      callback(null, false);
     }
   },
   credentials: true,
@@ -65,10 +66,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// Route de santé (sans authentification)
-app.get('/health', (req, res) => {
+const healthHandler = (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
-});
+};
+
+// Routes de santé (sans authentification)
+app.get('/health', healthHandler);
+app.get('/api/health', healthHandler);
 
 // Lancement du serveur
 async function startServer() {

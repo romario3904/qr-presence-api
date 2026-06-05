@@ -57,14 +57,15 @@ const authenticateToken = (req, res, next) => {
 };
 
 const authorize = (...allowedTypes) => {
+  const roles = allowedTypes.flat();
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ success: false, message: 'Non authentifié' });
     }
-    if (!allowedTypes.includes(req.user.type_utilisateur)) {
+    if (!roles.includes(req.user.type_utilisateur)) {
       return res.status(403).json({ 
         success: false, 
-        message: `Accès refusé. Rôle requis: ${allowedTypes.join(', ')}`,
+        message: `Accès refusé. Rôle requis: ${roles.join(', ')}`,
         userType: req.user.type_utilisateur
       });
     }

@@ -455,11 +455,14 @@ const getStudentPresencesById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Vérifier si l'utilisateur est admin ou l'étudiant lui-même
-    const isAdmin = req.user.role === 'admin';
-    const isStudent = req.user.id_etudiant === parseInt(id);
-    
-    if (!isAdmin && !isStudent) {
+    const userEtudiantId = req.user.profil?.id_etudiant;
+    const isAdmin = req.user.type_utilisateur === 'admin';
+    const isOwnStudent =
+      req.user.type_utilisateur === 'etudiant' &&
+      userEtudiantId &&
+      parseInt(id, 10) === parseInt(userEtudiantId, 10);
+
+    if (!isAdmin && !isOwnStudent) {
       return res.status(403).json({
         success: false,
         message: 'Non autorisé'

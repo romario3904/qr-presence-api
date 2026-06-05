@@ -12,9 +12,18 @@ let poolConfig = {
 // Utiliser DATABASE_URL si disponible (Render/Neon)
 if (process.env.DATABASE_URL) {
   poolConfig.connectionString = process.env.DATABASE_URL;
-  poolConfig.ssl = process.env.NODE_ENV === 'production' 
-    ? { rejectUnauthorized: false } 
-    : false;
+  const dbUrl = process.env.DATABASE_URL.toLowerCase();
+  const needsSsl =
+    process.env.NODE_ENV === 'production' ||
+    process.env.PGSSLMODE === 'require' ||
+    dbUrl.includes('neon.tech') ||
+    dbUrl.includes('render.com') ||
+    dbUrl.includes('supabase.co') ||
+    dbUrl.includes('sslmode=require');
+
+  if (needsSsl) {
+    poolConfig.ssl = { rejectUnauthorized: false };
+  }
 } else {
   // Configuration locale (fallback)
   poolConfig.host = process.env.DB_HOST || 'localhost';
