@@ -190,16 +190,28 @@ const verifyQRCode = async (req, res) => {
 
     // Vérifier si déjà présent
     const resultPresences = await db.query(
-      'SELECT id_presence FROM presence WHERE id_seance = $1 AND id_etudiant = $2',
+      'SELECT statut, date_scan FROM presence WHERE id_seance = $1 AND id_etudiant = $2',
       [seance.id_seance, etudiantId]
     );
     const presences = resultPresences.rows;
 
     if (presences.length > 0) {
+      const presence = presences[0];
       return res.status(409).json({
         success: false,
         message: 'Vous êtes déjà marqué présent pour cette séance',
-        presence: presences[0]
+        statut: presence.statut,
+        heure_pointage: presence.date_scan,
+        seance: {
+          id_seance: seance.id_seance,
+          nom_matiere: seance.nom_matiere,
+          code_matiere: seance.code_matiere,
+          date_seance: seance.date_seance,
+          heure_debut: seance.heure_debut,
+          heure_fin: seance.heure_fin,
+          salle: seance.salle,
+          enseignant: `${seance.enseignant_prenom} ${seance.enseignant_nom}`
+        }
       });
     }
 
